@@ -2,52 +2,84 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
+	"encoding/json"
+	_ "fmt"
+	"log"
+	"net/http"
 
+	_ "github.com/dgrijalva/jwt-go"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gorilla/mux"
 )
 
+type User struct {
+	Name  string `json:"name,omitempty"`
+	Token string `json:"x-token,omitempty"`
+}
+
 func main() {
-	db, err := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
-	if err != nil {
-		panic(err.Error())
-	}
+
+	r := mux.NewRouter()
+
+	r.HandleFunc("/user/create", UserCreateRequest).Methods("POST")
+	r.HandleFunc("/user/get", UserGetResponse).Methods("GET")
+	r.HandleFunc("/user/update", UserUpdateRequest).Methods("PUT")
+
+	log.Println("サーバー起動 : 8080 port で受信")
+
+	// log.Fatal は、異常を検知すると処理の実行を止めてくれる
+	log.Fatal(http.ListenAndServe(":8080", r))
+
+}
+
+func UserCreateRequest(w http.ResponseWriter, r *http.Request) {
+	headerToken := "aaabbbcc"
+
+	var user User
+	user.Token = headerToken
+	
+	json.NewDecoder(r.Body).Decode(&user)
+
+	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
 	defer db.Close()
 
-	rows, err := db.Query("SELECT * FROM user")
-	if err != nil {
-		panic(err.Error())
-	}
+	stmtInsert, _ := db.Prepare("INSERT INTO user(`name`, `x-token`) VALUES(?, ?)")
+	defer stmtInsert.Close()
 
-	columns, err := rows.Columns()
-	if err != nil {
-		panic(err.Error())
-	}
+	stmtInsert.Exec(user.Name, headerToken)
 
-	values := make([]sql.RawBytes, len(columns))
+	json.NewEncoder(w).Encode(user)
+}
 
-	scanArgs := make([]interface{}, len(values))
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
+//func UserCreateResponse(w http.ResponseWriter, r *http.Request)  {
+//
+//}
 
-	for rows.Next() {
-		err = rows.Scan(scanArgs...)
-		if err != nil {
-			panic(err.Error())
-		}
+func UserGetResponse(w http.ResponseWriter, r *http.Request) {
+	headerToken := r.Header.Get("x-token")
+	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
+	defer db.Close()
 
-		var value string
-		for i, col := range values {
-			// Here we can check if the value is nil (NULL value)
-			if col == nil {
-				value = "NULL"
-			} else {
-				value = string(col)
-			}
-			fmt.Println(columns[i], ": ", value)
-		}
-		fmt.Println("-----------------------------------")
-	}
+	var user User
 
+	row := db.QueryRow("SELECT name FROM user WHERE `x-token` = ?", headerToken)
+
+	row.Scan(&user.Name)
+
+	json.NewEncoder(w).Encode(user)
+}
+
+func UserUpdateRequest(w http.ResponseWriter, r *http.Request) {
+	headerToken := r.Header.Get("x-token")
+
+	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
+	defer db.Close()
+
+	var user User
+	json.NewDecoder(r.Body).Decode(&user)
+
+	stmtInsert, _ := db.Prepare("UPDATE user SET name = ? WHERE `x-token` = ?")
+	defer stmtInsert.Close()
+
+	stmtInsert.Exec(user.Name, headerToken)
 }
