@@ -1,29 +1,24 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
-	_ "fmt"
+	"io"
 	"log"
 	"net/http"
 
-	_ "github.com/dgrijalva/jwt-go"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
-
-type User struct {
-	Name  string `json:"name,omitempty"`
-	Token string `json:"x-token,omitempty"`
-}
 
 func main() {
 
 	r := mux.NewRouter()
 
-	r.HandleFunc("/user/create", UserCreateRequest).Methods("POST")
-	r.HandleFunc("/user/get", UserGetResponse).Methods("GET")
-	r.HandleFunc("/user/update", UserUpdateRequest).Methods("PUT")
+	r.HandleFunc("/user/create", UserCreate).Methods("POST")
+	r.HandleFunc("/user/get", UserGet).Methods("GET")
+	r.HandleFunc("/user/update", UserUpdate).Methods("PUT")
 
 	log.Println("サーバー起動 : 8080 port で受信")
 
@@ -32,54 +27,74 @@ func main() {
 
 }
 
-func UserCreateRequest(w http.ResponseWriter, r *http.Request) {
-	headerToken := "aaabbbcc"
+// io.Readerをbyteのスライスに変換
+func StreamToByte(stream io.Reader) []byte {
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(stream)
+	return buf.Bytes()
+}
 
-	var user User
-	user.Token = headerToken
-	
-	json.NewDecoder(r.Body).Decode(&user)
+type UserCreateRequest struct {
+	Name string `json:"name"`
+}
+type UserCreateResponse struct {
+	Token string `json:"token"`
+}
+
+func UserCreate(w http.ResponseWriter, r *http.Request) {
+	var reqUser UserCreateRequest
+
+	json.Unmarshal(StreamToByte(r.Body), &reqUser)
+	token := "aaabbbcc"
+	resUser := UserCreateResponse{
+		Token: token,
+	}
 
 	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
 	defer db.Close()
 
 	stmtInsert, _ := db.Prepare("INSERT INTO user(`name`, `x-token`) VALUES(?, ?)")
 	defer stmtInsert.Close()
+	stmtInsert.Exec(reqUser.Name, resUser.Token)
 
-	stmtInsert.Exec(user.Name, headerToken)
-
-	json.NewEncoder(w).Encode(user)
+	b, _ := json.Marshal(resUser)
+	w.Write(b)
 }
 
-//func UserCreateResponse(w http.ResponseWriter, r *http.Request)  {
-//
-//}
+type UserGetResponse struct {
+	Name string `json:"name"`
+}
 
-func UserGetResponse(w http.ResponseWriter, r *http.Request) {
-	headerToken := r.Header.Get("x-token")
+func UserGet(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("x-token")
 	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
 	defer db.Close()
 
-	var user User
+	var resUser UserGetResponse
 
-	row := db.QueryRow("SELECT name FROM user WHERE `x-token` = ?", headerToken)
+	row := db.QueryRow("SELECT name FROM user WHERE `x-token` = ?", token)
 
-	row.Scan(&user.Name)
+	row.Scan(&resUser.Name)
 
-	json.NewEncoder(w).Encode(user)
+	b, _ := json.Marshal(resUser)
+	w.Write(b)
 }
 
-func UserUpdateRequest(w http.ResponseWriter, r *http.Request) {
-	headerToken := r.Header.Get("x-token")
+type UserUpdateRequest struct {
+	Name string `json:"name"`
+}
+
+func UserUpdate(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("x-token")
 
 	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
 	defer db.Close()
 
-	var user User
-	json.NewDecoder(r.Body).Decode(&user)
+	var reqUser UserUpdateRequest
+
+	json.Unmarshal(StreamToByte(r.Body), &reqUser)
 
 	stmtInsert, _ := db.Prepare("UPDATE user SET name = ? WHERE `x-token` = ?")
 	defer stmtInsert.Close()
-
-	stmtInsert.Exec(user.Name, headerToken)
+	stmtInsert.Exec(reqUser.Name, token)
 }
