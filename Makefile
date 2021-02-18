@@ -7,6 +7,11 @@ compose_start:
 compose_down:
 	docker-compose down
 
+compose_restart:
+	docker-compose down; \
+	docker-compose build; \
+	docker-compose start
+
 bash_golang:
 	docker exec -it golang bash
 
