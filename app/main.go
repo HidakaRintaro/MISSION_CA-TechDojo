@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -15,9 +14,6 @@ import (
 )
 
 func main() {
-
-	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
-	fmt.Printf("%T\n", db)
 	r := mux.NewRouter()
 
 	r.HandleFunc("/user/create", UserCreate).Methods("POST")
@@ -156,12 +152,12 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 	// DBから指定ガチャのキャラの排出率を取得
 	gachaId := 3 // 今回はガチャの種類を固定値とする
 	var gacharesult GachaResult
-	var rankCharacter []GachaResult // ガチャのランクで取得できたキャラの一時保管
-	var result []GachaResult        // ガチャ結果
+	var result []GachaResult // ガチャ結果
 	db := DbInfo()
 	defer db.Close()
 
 	for time := 0; time < reqGacha.Times; time++ {
+		var rankCharacter []GachaResult // ガチャのランクで取得できたキャラの一時保管
 
 		boundaries := make([]int, len(weight)+1)
 		for i := 1; i < len(weight)+1; i++ {
@@ -177,6 +173,7 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+
 		rows, _ := db.Query("SELECT e.character_id, c.name FROM emission e JOIN `character` c ON c.id = e.character_id WHERE e.gacha_id = ? AND c.rarity = ?",
 			gachaId,
 			rank,
@@ -187,6 +184,7 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 			rankCharacter = append(rankCharacter, gacharesult)
 			cnt++
 		}
+
 		result = append(result, rankCharacter[rand.Intn(cnt)])
 	}
 
