@@ -167,7 +167,7 @@ func (s *Server) GachaDraw(w http.ResponseWriter, r *http.Request) {
 		draw := rand.Intn(boundaries[len(boundaries)-1])
 
 		for i, boundary := range boundaries {
-			if draw <= boundary {
+			if draw < boundary {
 				rank = rarity[i]
 				break
 			}
@@ -221,6 +221,7 @@ func (s *Server) CharacterList(w http.ResponseWriter, r *http.Request) {
 
 	var userCharacter UserCharacter
 	var resList CharacterListResponse
+	resList.Characters = make([]UserCharacter, 0)
 
 	rows, _ := s.db.Query(
 		"SELECT p.id AS userCharacterID, c.id AS characterID, c.name FROM `possession` p JOIN `user` u ON u.id = p.user_id JOIN `character` c ON c.id = p.character_id WHERE u.`x-token` = ?",
