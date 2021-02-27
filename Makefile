@@ -10,7 +10,7 @@ compose_down:
 compose_restart:
 	docker-compose down; \
 	docker-compose build; \
-	docker-compose start
+	docker-compose start -d
 
 bash_golang:
 	docker exec -it golang bash

@@ -14,15 +14,16 @@ import (
 )
 
 func main() {
+	db, _ := sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
+	server := NewServer(db)
+	defer server.Close()
+
 	r := mux.NewRouter()
-
-	r.HandleFunc("/user/create", UserCreate).Methods("POST")
-	r.HandleFunc("/user/get", UserGet).Methods("GET")
-	r.HandleFunc("/user/update", UserUpdate).Methods("PUT")
-
-	r.HandleFunc("/gacha/draw", GachaDraw).Methods("POST")
-
-	r.HandleFunc("/character/list", CharacterList).Methods("GET")
+	r.HandleFunc("/user/create", server.UserCreate).Methods("POST")
+	r.HandleFunc("/user/get", server.UserGet).Methods("GET")
+	r.HandleFunc("/user/update", server.UserUpdate).Methods("PUT")
+	r.HandleFunc("/gacha/draw", server.GachaDraw).Methods("POST")
+	r.HandleFunc("/character/list", server.CharacterList).Methods("GET")
 
 	log.Println("サーバー起動 : 8080 port で受信")
 
@@ -38,9 +39,18 @@ func StreamToByte(stream io.Reader) []byte {
 	return buf.Bytes()
 }
 
-func DbInfo() (db *sql.DB) {
-	db, _ = sql.Open("mysql", "root:root@tcp(mysql:3306)/ca_tech_dojo")
-	return db
+func NewServer(db *sql.DB) *Server {
+	return &Server{
+		db: db,
+	}
+}
+
+type Server struct {
+	db *sql.DB
+}
+
+func (s *Server) Close() {
+	s.db.Close()
 }
 
 func Random() string {
@@ -62,7 +72,7 @@ type UserCreateResponse struct {
 	Token string `json:"token"`
 }
 
-func UserCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UserCreate(w http.ResponseWriter, r *http.Request) {
 	var reqUser UserCreateRequest
 
 	json.Unmarshal(StreamToByte(r.Body), &reqUser)
@@ -71,10 +81,7 @@ func UserCreate(w http.ResponseWriter, r *http.Request) {
 		Token: token,
 	}
 
-	db := DbInfo()
-	defer db.Close()
-
-	stmtInsert, _ := db.Prepare("INSERT INTO user(`name`, `x-token`) VALUES(?, ?)")
+	stmtInsert, _ := s.db.Prepare("INSERT INTO user(`name`, `x-token`) VALUES(?, ?)")
 	defer stmtInsert.Close()
 	stmtInsert.Exec(reqUser.Name, resUser.Token)
 
@@ -86,15 +93,12 @@ type UserGetResponse struct {
 	Name string `json:"name"`
 }
 
-func UserGet(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UserGet(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("x-token")
-
-	db := DbInfo()
-	defer db.Close()
 
 	var resUser UserGetResponse
 
-	row := db.QueryRow("SELECT name FROM user WHERE `x-token` = ?", token)
+	row := s.db.QueryRow("SELECT name FROM user WHERE `x-token` = ?", token)
 
 	row.Scan(&resUser.Name)
 
@@ -106,17 +110,14 @@ type UserUpdateRequest struct {
 	Name string `json:"name"`
 }
 
-func UserUpdate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) UserUpdate(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("x-token")
-
-	db := DbInfo()
-	defer db.Close()
 
 	var reqUser UserUpdateRequest
 
 	json.Unmarshal(StreamToByte(r.Body), &reqUser)
 
-	stmtInsert, _ := db.Prepare("UPDATE user SET name = ? WHERE `x-token` = ?")
+	stmtInsert, _ := s.db.Prepare("UPDATE user SET name = ? WHERE `x-token` = ?")
 	defer stmtInsert.Close()
 	stmtInsert.Exec(reqUser.Name, token)
 }
@@ -131,10 +132,10 @@ type GachaResult struct {
 	Name        string `json:"name"`
 }
 type GachaDrawResponse struct {
-	Results []GachaResult
+	Results []GachaResult `json:"results"`
 }
 
-func GachaDraw(w http.ResponseWriter, r *http.Request) {
+func (s *Server) GachaDraw(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("x-token")
 	var weight = []int{
 		5,  // S
@@ -153,8 +154,6 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 	gachaId := 3 // 今回はガチャの種類を固定値とする
 	var gacharesult GachaResult
 	var result []GachaResult // ガチャ結果
-	db := DbInfo()
-	defer db.Close()
 
 	for time := 0; time < reqGacha.Times; time++ {
 		var rankCharacter []GachaResult // ガチャのランクで取得できたキャラの一時保管
@@ -174,7 +173,7 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		rows, _ := db.Query("SELECT e.character_id, c.name FROM emission e JOIN `character` c ON c.id = e.character_id WHERE e.gacha_id = ? AND c.rarity = ?",
+		rows, _ := s.db.Query("SELECT e.character_id, c.name FROM emission e JOIN `character` c ON c.id = e.character_id WHERE e.gacha_id = ? AND c.rarity = ?",
 			gachaId,
 			rank,
 		)
@@ -193,11 +192,11 @@ func GachaDraw(w http.ResponseWriter, r *http.Request) {
 
 	/* tokenからuseridの取得 */
 	var id int
-	db.QueryRow("SELECT id FROM user WHERE `x-token` = ?", token).Scan(&id)
+	s.db.QueryRow("SELECT id FROM user WHERE `x-token` = ?", token).Scan(&id)
 
 	/* キャラクターの保存 */
 	for _, character := range result {
-		stmtInsert, _ := db.Prepare("INSERT INTO possession (`character_id`, `user_id`) VALUES(?, ?)")
+		stmtInsert, _ := s.db.Prepare("INSERT INTO possession (`character_id`, `user_id`) VALUES(?, ?)")
 		stmtInsert.Exec(character.CharacterID, id)
 		stmtInsert.Close()
 	}
@@ -217,16 +216,13 @@ type CharacterListResponse struct {
 	Characters []UserCharacter `json:"characters"`
 }
 
-func CharacterList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CharacterList(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("x-token")
-
-	db := DbInfo()
-	defer db.Close()
 
 	var userCharacter UserCharacter
 	var resList CharacterListResponse
 
-	rows, _ := db.Query(
+	rows, _ := s.db.Query(
 		"SELECT p.id AS userCharacterID, c.id AS characterID, c.name FROM `possession` p JOIN `user` u ON u.id = p.user_id JOIN `character` c ON c.id = p.character_id WHERE u.`x-token` = ?",
 		token,
 	)
