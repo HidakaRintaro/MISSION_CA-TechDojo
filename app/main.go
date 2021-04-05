@@ -162,7 +162,7 @@ func (s *Server) GachaDraw(w http.ResponseWriter, r *http.Request) {
 		for i := 1; i < len(weight)+1; i++ {
 			boundaries[i] = boundaries[i-1] + weight[i-1]
 		}
-		boundaries = boundaries[1:len(boundaries)] // 頭の0値は不要なので破棄
+		boundaries = boundaries[1:] // 頭の0値は不要なので破棄
 
 		draw := rand.Intn(boundaries[len(boundaries)-1])
 
